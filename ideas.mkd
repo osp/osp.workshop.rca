@@ -1,0 +1,2 @@
+introspection to get access to the full api
+use aliases to create macros
