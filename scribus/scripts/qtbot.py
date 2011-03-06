@@ -47,10 +47,14 @@ def info(object, spacing=10, collapse=1):
     """
     methodList = [method for method in dir(object) if callable(getattr(object, method))]
     processFunc = collapse and (lambda s: " ".join(s.split())) or (lambda s: s)
-    return "\n".join(["%s %s" %
+    #return "\n".join(["%s %s" %
+                      #(method.ljust(spacing),
+                       #processFunc(str(getattr(object, method).__doc__)))
+                     #for method in methodList])
+    return ["%s %s" %
                       (method.ljust(spacing),
                        processFunc(str(getattr(object, method).__doc__)))
-                     for method in methodList])
+                     for method in methodList]
 
 
 class MySock(Qt.QObject):
@@ -68,37 +72,38 @@ class MySock(Qt.QObject):
         if chan == "#osp" and msg.startswith("!"):
             p = r"^([a-zA-Z]+)\((.+)*\)"
             r = re.search(p, msg[1:])
-            cmd, args = r.groups()
-            print(cmd, args)
+            if r is None:
+                return
+            else:
+                cmd, args = r.groups()
             if cmd in methodList:
                 scribus.setRedraw(False)
-                print(type(ast.literal_eval(args)))
                 try:
                     if args is None:
-                        getattr(scribus, cmd)()
+                        r = getattr(scribus, cmd)()
                     elif type(ast.literal_eval(args)) is tuple:
-                        getattr(scribus, cmd)(*ast.literal_eval(args))
+                        r = getattr(scribus, cmd)(*ast.literal_eval(args))
                     else:
-                        getattr(scribus, cmd)(ast.literal_eval(args))
+                        r = getattr(scribus, cmd)(ast.literal_eval(args))
                     self.privmsg(chan, "called %s" % cmd)
+                    self.privmsg(chan, "returned %s" % r if r is not None else "nothing")
                     # Ugly workaround to force scribus refreshing
                     scribus.zoomDocument(101)
                     scribus.zoomDocument(100)
                 except TypeError:
-                    print("typeerror")
                     self.privmsg(chan, "%s" % getattr(scribus, cmd).__doc__)
                 scribus.setRedraw(True)
+            elif cmd == "help":
+                for i in info(scribus):
+                    self.privmsg(chan, "%s" % i)
             else:
                 self.privmsg(chan, "No such a command: %s" % cmd)
-        
     
     def slotRead(self):
         raw_msg = unicode(self.sock.readAll())
         prefix, cmd, args = parsemsg(raw_msg)
         if cmd == "PRIVMSG":
             self.on_privmsg(nm_to_n(prefix), args[0], args[1][:-2])
-        #text = scribus.createText(100, 100, 100, 100)
-        #scribus.setText(msg, text)
 
 
 sock = QtNetwork.QTcpSocket()  # Creates a socket
