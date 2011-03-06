@@ -8,6 +8,39 @@ global foo
 
 methodList = [method for method in dir(scribus) if callable(getattr(scribus, method))]
 
+class IRCBadMessage(Exception):
+    pass
+
+def nm_to_n(s):
+    """Get the nick part of a nickmask.
+
+    (The source of an Event is a nickmask.)
+    """
+    return s.split("!")[0]
+
+def parsemsg(s):
+    """
+    Breaks a message from an IRC server into its prefix, command, and arguments.
+    """
+    prefix = ''
+    trailing = []
+    if not s:
+       raise IRCBadMessage("Empty line.")
+    if s[0] == ':':
+        prefix, s = s[1:].split(' ', 1)
+    if s.find(' :') != -1:
+        s, trailing = s.split(' :', 1)
+        args = s.split()
+        args.append(trailing)
+    else:
+        args = s.split()
+    command = args.pop(0)
+    return prefix, command, args
+
+parsemsg(":test!~test@test.com PRIVMSG #channel :Hi!")
+# ('test!~test@test.com', 'PRIVMSG', ['#channel', 'Hi!'])
+
+
 
 def info(object, spacing=10, collapse=1):
     """
@@ -29,22 +62,30 @@ class MySock(Qt.QObject):
     def __init__(self, s):
         self.sock = s  # Socket preexistante et configurée
         Qt.QObject.connect(self.sock, Qt.SIGNAL("readyRead()"), self.slotRead)  # Connecte au signal émit par la socket "sock" à sa méthode de lecture slotread
-
+    
+    def privmsg(self, chan, msg):
+        self.sock.write("PRIVMSG %s :%s\r\n" % (chan, msg))
+    
+    def on_privmsg(self, nick, chan, msg):
+        if chan == "#osp" and msg.startswith("!"):
+            cmd = msg[1:]
+            if msg[1:] in methodList:
+                try:
+                    getattr(scribus, msg[1:])()
+                    self.privmsg(chan, "called %s" % msg[1:])
+                except TypeError:
+                    self.privmsg(chan, "%s" % getattr(scribus, msg[1:]).__doc__)
+            else:
+                self.privmsg(chan, "No such a command: %s" % msg[1:])
+        
+    
     def slotRead(self):
-        msg = unicode(self.sock.readAll())
-        cmd = ":".join(msg.split(":")[2:])[:-2]
-        if cmd.startswith("!") and cmd[1:] in methodList:
-            try:
-                getattr(scribus, cmd[1:])()
-                self.sock.write("PRIVMSG #osp :called %s.\r\n" % cmd[1:])
-            except TypeError:
-                self.sock.write("PRIVMSG #osp :%s\r\n" % getattr(scribus, cmd[1:]).__doc__)
-            
-        #else:
-            #self.sock.write("PRIVMSG #osp :%s is an unknown method.\r\n" % msg)
+        raw_msg = unicode(self.sock.readAll())
+        prefix, cmd, args = parsemsg(raw_msg)
+        if cmd == "PRIVMSG":
+            self.on_privmsg(nm_to_n(prefix), args[0], args[1][:-2])
         #text = scribus.createText(100, 100, 100, 100)
         #scribus.setText(msg, text)
-        # now do something constructive!!!
 
 
 sock = QtNetwork.QTcpSocket()  # Creates a socket
