@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import scribus
+import re
+import ast
 from PyQt4 import Qt, QtNetwork
 
 global sock
@@ -10,6 +12,7 @@ methodList = [method for method in dir(scribus) if callable(getattr(scribus, met
 
 class IRCBadMessage(Exception):
     pass
+
 
 def nm_to_n(s):
     """Get the nick part of a nickmask.
@@ -37,11 +40,6 @@ def parsemsg(s):
     command = args.pop(0)
     return prefix, command, args
 
-parsemsg(":test!~test@test.com PRIVMSG #channel :Hi!")
-# ('test!~test@test.com', 'PRIVMSG', ['#channel', 'Hi!'])
-
-
-
 def info(object, spacing=10, collapse=1):
     """
     Print methods and doc strings.
@@ -68,15 +66,30 @@ class MySock(Qt.QObject):
     
     def on_privmsg(self, nick, chan, msg):
         if chan == "#osp" and msg.startswith("!"):
-            cmd = msg[1:]
-            if msg[1:] in methodList:
+            p = r"^([a-zA-Z]+)\((.+)*\)"
+            r = re.search(p, msg[1:])
+            cmd, args = r.groups()
+            print(cmd, args)
+            if cmd in methodList:
+                scribus.setRedraw(False)
+                print(type(ast.literal_eval(args)))
                 try:
-                    getattr(scribus, msg[1:])()
-                    self.privmsg(chan, "called %s" % msg[1:])
+                    if args is None:
+                        getattr(scribus, cmd)()
+                    elif type(ast.literal_eval(args)) is tuple:
+                        getattr(scribus, cmd)(*ast.literal_eval(args))
+                    else:
+                        getattr(scribus, cmd)(ast.literal_eval(args))
+                    self.privmsg(chan, "called %s" % cmd)
+                    # Ugly workaround to force scribus refreshing
+                    scribus.zoomDocument(101)
+                    scribus.zoomDocument(100)
                 except TypeError:
-                    self.privmsg(chan, "%s" % getattr(scribus, msg[1:]).__doc__)
+                    print("typeerror")
+                    self.privmsg(chan, "%s" % getattr(scribus, cmd).__doc__)
+                scribus.setRedraw(True)
             else:
-                self.privmsg(chan, "No such a command: %s" % msg[1:])
+                self.privmsg(chan, "No such a command: %s" % cmd)
         
     
     def slotRead(self):
